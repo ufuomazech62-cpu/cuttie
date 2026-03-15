@@ -25,6 +25,15 @@ const MenuDrawer: React.FC<MenuDrawerProps> = ({
                   <button onClick={onClose}><ChevronLeft className="w-6 h-6 rotate-180" /></button>
              </div>
              
+             {/* Dev Mode Banner */}
+             <div className="mx-4 mt-4 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+                 <div className="flex items-center gap-2">
+                     <Sparkles className="w-4 h-4 text-purple-500" />
+                     <span className="text-xs font-bold text-purple-700 uppercase tracking-wide">Dev Mode</span>
+                 </div>
+                 <p className="text-[10px] text-purple-600 mt-1">Using mock auth. Data stored locally.</p>
+             </div>
+
              {/* Main Menu Items */}
              <div className="p-4 space-y-2 flex-1 overflow-y-auto">
                  <button onClick={() => { onOpenBilling(); onClose(); }} className="w-full flex items-center gap-3 p-3 hover:bg-gray-50 rounded-lg group transition-colors">

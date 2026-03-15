@@ -6,11 +6,19 @@ import Onboarding from '../components/onboarding/Onboarding';
 import Dashboard from '../components/dashboard/Dashboard';
 import Logo from '../components/Logo';
 import { BodyProfile, StyleItem } from '../types';
-import { auth, db, googleProvider } from '../lib/firebase';
-import { onAuthStateChanged, signInWithPopup, signOut, User } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { uploadImage } from '../services/userService';
 import { INITIAL_FREE_CREDITS } from '../data/constants';
+
+// Mock Auth Imports
+import { 
+  MockUser, 
+  getMockUser, 
+  getMockProfile, 
+  mockSignIn, 
+  mockSignOut, 
+  mockSaveProfile,
+  onMockAuthStateChanged,
+  createDefaultDevProfile
+} from '../lib/mockAuth';
 
 enum AppState {
   LANDING,
@@ -22,38 +30,27 @@ enum AppState {
 
 const App: React.FC = () => {
   const [appState, setAppState] = useState<AppState>(AppState.LOADING);
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<MockUser | null>(null);
   const [userProfile, setUserProfile] = useState<BodyProfile | null>(null);
   const [initialStyle, setInitialStyle] = useState<StyleItem | null>(null);
   const [initialFabrics, setInitialFabrics] = useState<string[]>([]);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+    // Mock auth state listener
+    const unsubscribe = onMockAuthStateChanged(async (currentUser) => {
       setUser(currentUser);
+      
       if (currentUser) {
-        // Fetch user profile from Firestore
-        const docRef = doc(db, "users", currentUser.uid);
-        const docSnap = await getDoc(docRef);
-
-        if (docSnap.exists()) {
-          let profile = docSnap.data() as BodyProfile;
-          
-          // Ensure email is up to date
-          if (currentUser.email && (!profile.email || profile.email !== currentUser.email)) {
-             profile = { ...profile, email: currentUser.email };
-             // We can update it in background
-             setDoc(docRef, { email: currentUser.email }, { merge: true });
-          }
-
+        // Get stored profile from localStorage
+        const profile = getMockProfile();
+        
+        if (profile) {
           setUserProfile(profile);
-          // If user has a profile, always go to dashboard
           setAppState(AppState.DASHBOARD);
         } else {
-          // User logged in but no profile (new user), go to onboarding if not already there
-          // But if they are already in onboarding (e.g. step 4), stay there
+          // User logged in but no profile - go to onboarding
           if (appState === AppState.LOADING) {
-             setAppState(AppState.LANDING); // Or Onboarding? Let's default to Landing for clarity, or straight to Onboarding if they just signed up?
-             // Actually if they have no profile, they likely came from "Sign In" on Landing or are new.
+            setAppState(AppState.LANDING);
           }
         }
       } else {
@@ -63,7 +60,7 @@ const App: React.FC = () => {
     });
 
     return () => unsubscribe();
-  }, []); // Only run on mount
+  }, []);
 
   const handleGetStarted = () => {
     if (user && userProfile) {
@@ -79,38 +76,30 @@ const App: React.FC = () => {
   };
 
   const handleOnboardingComplete = async (profile: BodyProfile, style: StyleItem | null, fabrics: string[]) => {
-    // Get the current user directly from auth (more reliable than state)
-    const currentUser = auth.currentUser;
-    
-    if (!currentUser) {
+    if (!user) {
         console.error("User not authenticated during onboarding completion");
         alert("Please sign in to save your profile.");
         return;
     }
 
-    // Save to Firestore
     try {
-        let finalProfile = { 
+        let finalProfile: BodyProfile = { 
             ...profile, 
-            email: currentUser.email || undefined,
-            credits: INITIAL_FREE_CREDITS // Give new users their free credits
+            email: user.email || undefined,
+            credits: INITIAL_FREE_CREDITS
         };
         
-        // Upload reference image to Storage if it's base64 (too large for Firestore)
+        // In mock mode, we don't upload to storage, just keep the base64 or URL
+        // For very large base64 strings, we could simulate a URL
         if (finalProfile.referenceImage && finalProfile.referenceImage.startsWith('data:')) {
-            console.log("Uploading reference image to Storage...");
-            const imageUrl = await uploadImage(
-                currentUser.uid, 
-                finalProfile.referenceImage, 
-                `profile/ref-${Date.now()}.jpg`
-            );
-            finalProfile = { ...finalProfile, referenceImage: imageUrl };
-            console.log("Reference image uploaded:", imageUrl);
+            // Keep as base64 for mock - in production this would be uploaded
+            console.log("Mock: Keeping reference image as base64");
         }
         
-        console.log("Attempting to save profile for user:", currentUser.uid);
-        await setDoc(doc(db, "users", currentUser.uid), finalProfile, { merge: true });
-        console.log("Profile saved successfully");
+        console.log("Mock: Saving profile for user:", user.uid);
+        await mockSaveProfile(user.uid, finalProfile);
+        console.log("Mock: Profile saved successfully");
+        
         setUserProfile(finalProfile);
         setInitialStyle(style);
         setInitialFabrics(fabrics);
@@ -123,7 +112,8 @@ const App: React.FC = () => {
   };
 
   const handleSignOut = async () => {
-    await signOut(auth);
+    await mockSignOut();
+    setUser(null);
     setUserProfile(null);
     setInitialStyle(null);
     setInitialFabrics([]);
@@ -132,9 +122,10 @@ const App: React.FC = () => {
   
   const handleGoogleSignIn = async () => {
     try {
-        const result = await signInWithPopup(auth, googleProvider);
-        console.log("Sign in successful:", result.user.uid);
-        // The auth state listener will handle the rest
+        const result = await mockSignIn();
+        console.log("Mock sign in successful:", result.uid);
+        setUser(result);
+        // Auth state listener will handle navigation to onboarding
     } catch (error: any) {
         console.error("Error signing in", error);
         const errorMsg = error?.message || "Unknown error";
@@ -144,7 +135,7 @@ const App: React.FC = () => {
 
   if (appState === AppState.LOADING) {
       return (
-          <div className="h-screen w-screen flex items-center justify-center bg-atelier-cream">
+          <div className="h-screen w-screen flex items-center justify-center bg-cuttie-cream">
               <Logo size="lg" />
           </div>
       );
@@ -172,7 +163,7 @@ const App: React.FC = () => {
           onUpdateProfile={async (newProfile) => {
               setUserProfile(newProfile);
               if (user) {
-                  await setDoc(doc(db, "users", user.uid), newProfile, { merge: true });
+                  await mockSaveProfile(user.uid, newProfile);
               }
           }}
           onSignOut={handleSignOut}

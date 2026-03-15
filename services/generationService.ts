@@ -1,20 +1,17 @@
 import { BodyProfile, StyleItem, GeneratedLook } from "../types";
-import { auth } from "../lib/firebase";
+import { getMockUser } from "../lib/mockAuth";
 
 /**
- * Get the current user's ID token for authentication
+ * Get the current user's ID token for authentication (mock mode)
  */
 const getAuthToken = async (): Promise<string | null> => {
-  const user = auth.currentUser;
+  // In mock mode, we return a mock token
+  const user = getMockUser();
   if (!user) {
     return null;
   }
-  try {
-    return await user.getIdToken();
-  } catch (error) {
-    console.error("Failed to get auth token:", error);
-    return null;
-  }
+  // Return a mock token - the API will handle this in dev mode
+  return `mock-token-${user.uid}`;
 };
 
 const callApi = async (action: string, payload: any) => {

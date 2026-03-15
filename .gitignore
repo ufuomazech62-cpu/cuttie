@@ -42,3 +42,4 @@ upload/
 # Lock files
 bun.lock
 package-lock.json
+.vercel

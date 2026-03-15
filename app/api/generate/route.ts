@@ -12,7 +12,26 @@ const CREDIT_COSTS = {
 };
 
 // Free credits for new users
-const INITIAL_FREE_CREDITS = 5;
+const INITIAL_FREE_CREDITS = 999; // Generous credits for dev
+
+// Check if we're in mock/development mode
+const isMockMode = () => process.env.NODE_ENV === 'development' || process.env.NEXT_PUBLIC_MOCK_AUTH === 'true';
+
+// In-memory store for mock users (persists during server runtime)
+const mockUserStore: Record<string, { credits: number; profile: any }> = {};
+
+/**
+ * Get or create mock user data
+ */
+function getMockUserData(uid: string): any {
+  if (!mockUserStore[uid]) {
+    mockUserStore[uid] = {
+      credits: INITIAL_FREE_CREDITS,
+      profile: { name: 'Dev User', email: 'dev@cuttie.app' }
+    };
+  }
+  return mockUserStore[uid];
+}
 
 /**
  * Verify user authentication and return user info
@@ -27,6 +46,15 @@ async function authenticateUser(request: Request): Promise<{ uid: string; userDa
     );
   }
 
+  // Check for mock token in development
+  if (isMockMode() && authHeader.startsWith('mock-token-')) {
+    const uid = authHeader.replace('mock-token-', '');
+    const userData = getMockUserData(uid);
+    console.log(`[MOCK AUTH] User authenticated: ${uid}`);
+    return { uid, userData };
+  }
+
+  // Production: Verify Firebase token
   const decodedToken = await verifyIdToken(authHeader);
 
   if (!decodedToken) {
@@ -63,6 +91,12 @@ async function initializeCreditsIfNeeded(uid: string, userData: any): Promise<nu
   // If user has no credits field or it's undefined, initialize with free credits
   if (userData.credits === undefined || userData.credits === null) {
     console.log(`Initializing credits for user ${uid} with ${INITIAL_FREE_CREDITS} free credits`);
+    
+    if (isMockMode()) {
+      userData.credits = INITIAL_FREE_CREDITS;
+      return INITIAL_FREE_CREDITS;
+    }
+    
     const db = getAdminDb();
     await db.collection('users').doc(uid).update({ credits: INITIAL_FREE_CREDITS });
     return INITIAL_FREE_CREDITS;
@@ -73,7 +107,16 @@ async function initializeCreditsIfNeeded(uid: string, userData: any): Promise<nu
 /**
  * Decrement user credits atomically
  */
-async function decrementCredits(uid: string, cost: number): Promise<void> {
+async function decrementCredits(uid: string, cost: number, userData: any): Promise<void> {
+  // Mock mode: decrement in-memory store
+  if (isMockMode()) {
+    if (mockUserStore[uid]) {
+      mockUserStore[uid].credits = Math.max(0, mockUserStore[uid].credits - cost);
+    }
+    return;
+  }
+
+  // Production: decrement in Firestore
   const db = getAdminDb();
   const userRef = db.collection('users').doc(uid);
 
@@ -94,6 +137,11 @@ async function decrementCredits(uid: string, cost: number): Promise<void> {
  * Log API usage for analytics and audit
  */
 async function logApiUsage(uid: string, action: string, success: boolean, cost: number): Promise<void> {
+  if (isMockMode()) {
+    console.log(`[MOCK LOG] User: ${uid} | Action: ${action} | Success: ${success} | Cost: ${cost}`);
+    return;
+  }
+
   try {
     const db = getAdminDb();
     await db.collection('api_logs').add({
@@ -190,11 +238,16 @@ export async function POST(request: Request) {
 
     // Step 6: Deduct credits only on success
     if (result) {
-      await decrementCredits(uid, creditCost);
+      await decrementCredits(uid, creditCost, userData);
       await logApiUsage(uid, action, true, creditCost);
     } else {
       await logApiUsage(uid, action, false, 0);
     }
+
+    // Get updated credits
+    const updatedCredits = isMockMode() 
+      ? (mockUserStore[uid]?.credits ?? userData.credits)
+      : userData.credits - (result ? creditCost : 0);
 
     const duration = Date.now() - startTime;
     console.log(`API Action Completed: ${action} | User: ${uid} | Duration: ${duration}ms | Cost: ${creditCost} credits`);
@@ -202,7 +255,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       result,
       creditsUsed: result ? creditCost : 0,
-      creditsRemaining: result ? (userData.credits || 0) - creditCost : userData.credits || 0,
+      creditsRemaining: updatedCredits,
     });
 
   } catch (error: any) {

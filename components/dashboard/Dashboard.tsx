@@ -4,8 +4,8 @@ import { useState, useEffect } from 'react';
 import { Zap, ChevronLeft, Menu } from 'lucide-react';
 import { BodyProfile, StyleItem, GeneratedLook } from '../../types';
 import { generateTryOnFront, generateTryOn360, generateStyleDraft } from '../../services/generationService';
-import { getUserCredits, getUserHistory, saveGeneratedLook, updateUserCredits, updateUserProfile, uploadImage, deleteGeneratedLook } from '../../services/userService';
-import { auth } from '../../lib/firebase';
+import { getUserCredits, getUserHistory, saveGeneratedLook, updateUserCredits, updateUserProfile, uploadImage, deleteGeneratedLook } from '../../services/mockUserService';
+import { getMockUser } from '../../lib/mockAuth';
 import { COST_IMAGE_GEN, INITIAL_FREE_CREDITS } from '../../data/constants';
 import Logo from '../Logo';
 import dynamic from 'next/dynamic';
@@ -66,11 +66,12 @@ const Dashboard: React.FC<DashboardProps> = ({ userProfile, onSignOut, onUpdateP
   // --- INITIAL DATA FETCH ---
   useEffect(() => {
     const fetchData = async () => {
-        if (auth.currentUser) {
+        const user = getMockUser();
+        if (user) {
             try {
                 const [userHistory, userCredits] = await Promise.all([
-                    getUserHistory(auth.currentUser.uid),
-                    getUserCredits(auth.currentUser.uid)
+                    getUserHistory(user.uid),
+                    getUserCredits(user.uid)
                 ]);
                 setHistory(userHistory);
                 setCredits(userCredits || INITIAL_FREE_CREDITS);
@@ -140,6 +141,14 @@ const Dashboard: React.FC<DashboardProps> = ({ userProfile, onSignOut, onUpdateP
       return true;
   };
 
+  const refreshCredits = async () => {
+      const user = getMockUser();
+      if (user) {
+          const storedCredits = await getUserCredits(user.uid);
+          setCredits(storedCredits || INITIAL_FREE_CREDITS);
+      }
+  };
+
   const handleGeneration = async (
       styleToUse: StyleItem | null = selectedStyle, 
       productsToUse: string[] = currentProducts, 
@@ -149,7 +158,8 @@ const Dashboard: React.FC<DashboardProps> = ({ userProfile, onSignOut, onUpdateP
       targetAngle: string = 'Full Frontal'
   ) => {
       if (!styleToUse) return;
-      if (!auth.currentUser) return; 
+      const user = getMockUser();
+      if (!user) return;
 
       // Note: Credit check is done on server, this is just for early UI feedback
       if (!checkEconomy(COST_IMAGE_GEN)) return;
@@ -166,12 +176,12 @@ const Dashboard: React.FC<DashboardProps> = ({ userProfile, onSignOut, onUpdateP
 
       try {
           // --- PRE-UPLOAD ASSETS TO AVOID PAYLOAD LIMITS ---
-          const uid = auth.currentUser.uid;
+          const uid = user.uid;
           const finalProfile = { ...profileToUse };
           if (finalProfile.referenceImage && finalProfile.referenceImage.startsWith('data:')) {
                const url = await uploadImage(uid, finalProfile.referenceImage!, `uploads/${Date.now()}_ref.jpg`);
                finalProfile.referenceImage = url;
-               // Update global state/DB so we don't upload again
+               // Update global state so we don't upload again
                onUpdateProfile(finalProfile);
                updateUserProfile(uid, finalProfile);
           }
@@ -237,42 +247,30 @@ const Dashboard: React.FC<DashboardProps> = ({ userProfile, onSignOut, onUpdateP
                   setHistory(prev => [result, ...prev]);
               }
               
-              // Sync to Firestore
-              if (auth.currentUser) {
-                  // Upload to Storage and save URL to Firestore
-                  console.log("Saving generated look to cloud...");
-                  saveGeneratedLook(auth.currentUser.uid, lookToSave).then(savedLook => {
+              // Sync to localStorage
+              const saveUser = getMockUser();
+              if (saveUser) {
+                  console.log("Saving generated look locally...");
+                  saveGeneratedLook(saveUser.uid, lookToSave).then(savedLook => {
                       console.log("Look saved successfully:", savedLook);
-                      // Update local history with the version containing URLs (to save memory and persistent references)
+                      // Update local history
                       setHistory(prev => prev.map(l => l.id === savedLook.id ? savedLook : l));
-                      // If the user is still viewing this look, update it to use URLs too
                       setCurrentLook(prev => (prev && prev.id === savedLook.id) ? savedLook : prev);
                   }).catch(err => {
-                      console.error("Failed to save to cloud:", err);
-                      alert("Preview generated but failed to save to gallery. Please screenshot!");
+                      console.error("Failed to save:", err);
+                      alert("Preview generated but failed to save to gallery.");
                   });
               }
 
           } else {
-             // This block might not be reached if generateTryOnFront throws on failure now
              console.warn("Result was null/undefined");
-             // Refresh credits from server
-             if (auth.currentUser) {
-                 const serverCredits = await getUserCredits(auth.currentUser.uid);
-                 setCredits(serverCredits || INITIAL_FREE_CREDITS);
-             }
+             await refreshCredits();
              alert("The beauty studio is busy (Server Error). Please try again.");
              if (!refinement) setView('create');
           }
       } catch (e: any) {
           console.error("Generation Error Detailed:", e);
-          
-          // Refresh credits from server on error
-          if (auth.currentUser) {
-              const serverCredits = await getUserCredits(auth.currentUser.uid);
-              setCredits(serverCredits || INITIAL_FREE_CREDITS);
-          }
-          
+          await refreshCredits();
           const errorMessage = e?.message || "Unknown error";
           alert(`The AI encountered an issue: ${errorMessage}. Please try again.`);
           if (!refinement) setView('create');
@@ -349,28 +347,21 @@ const Dashboard: React.FC<DashboardProps> = ({ userProfile, onSignOut, onUpdateP
               setCurrentLook(result);
               setHistory(prev => prev.map(l => l.id === result.id ? result : l));
               
-              if (auth.currentUser) {
-                  saveGeneratedLook(auth.currentUser.uid, result).then(savedLook => {
+              const saveUser = getMockUser();
+              if (saveUser) {
+                  saveGeneratedLook(saveUser.uid, result).then(savedLook => {
                        setHistory(prev => prev.map(l => l.id === savedLook.id ? savedLook : l));
                        setCurrentLook(prev => (prev && prev.id === savedLook.id) ? savedLook : prev);
                   });
               }
 
           } else {
-             // Refresh credits from server
-             if (auth.currentUser) {
-                 const serverCredits = await getUserCredits(auth.currentUser.uid);
-                 setCredits(serverCredits || INITIAL_FREE_CREDITS);
-             }
+             await refreshCredits();
              alert("Could not complete 360 view. Try again.");
           }
       } catch (e: any) {
           console.error(e);
-          // Refresh credits from server on error
-          if (auth.currentUser) {
-              const serverCredits = await getUserCredits(auth.currentUser.uid);
-              setCredits(serverCredits || INITIAL_FREE_CREDITS);
-          }
+          await refreshCredits();
           alert(`The AI encountered an error: ${e.message}. Please try again.`);
       } finally {
           setIsGenerating(false);
@@ -402,12 +393,12 @@ const Dashboard: React.FC<DashboardProps> = ({ userProfile, onSignOut, onUpdateP
           setCurrentLook(null);
       }
 
-      if (auth.currentUser && lookToDelete) {
+      const deleteUser = getMockUser();
+      if (deleteUser && lookToDelete) {
           try {
-              await deleteGeneratedLook(auth.currentUser.uid, lookId, lookToDelete);
+              await deleteGeneratedLook(deleteUser.uid, lookId, lookToDelete);
           } catch (e) {
-              console.error("Failed to delete look from cloud", e);
-              // Optionally revert state here if critical
+              console.error("Failed to delete look", e);
           }
       } else {
           console.warn("Could not find look to delete in history or currentLook", lookId);
@@ -487,7 +478,8 @@ const Dashboard: React.FC<DashboardProps> = ({ userProfile, onSignOut, onUpdateP
       <TopUpModal isOpen={showTopUp} onClose={() => setShowTopUp(false)} handleTopUp={(amount) => { 
           const newCredits = credits + amount;
           setCredits(newCredits); 
-          if (auth.currentUser) updateUserCredits(auth.currentUser.uid, newCredits);
+          const topUpUser = getMockUser();
+          if (topUpUser) updateUserCredits(topUpUser.uid, newCredits);
           setShowTopUp(false); 
       }} />
       <FeedbackModal 

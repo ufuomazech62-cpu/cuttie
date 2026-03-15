@@ -8,6 +8,7 @@ export interface AiMeasurements {
 }
 
 export interface BodyProfile {
+  id?: string;
   name: string;
   email?: string;
   height?: string;
@@ -22,6 +23,10 @@ export interface BodyProfile {
   // New fields for Cuttie
   facePhoto?: string; // Face photo for makeup/hairstyle try-on
   wardrobeItems?: string[]; // User's uploaded wardrobe items
+  // User account fields
+  credits?: number;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface StyleItem {
