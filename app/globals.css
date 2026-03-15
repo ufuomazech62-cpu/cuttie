@@ -1,0 +1,55 @@
+@import "tailwindcss";
+@config "../tailwind.config.ts";
+
+/* Custom Styles from index.html */
+html, body {
+  height: 100%;
+}
+body {
+  font-family: 'DM Sans', sans-serif;
+  background-color: #FDF8F5;
+  color: #1A1A1A;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Artistic Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  background: #FDF8F5;
+}
+::-webkit-scrollbar-thumb {
+  background: #9333EA;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Bauhaus Utilities */
+.border-thin {
+  border-width: 1px;
+}
+.mask-arch {
+  mask-image: url("data:image/svg+xml,%3Csvg width='100%25' height='100%25' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 100 V 50 Q 50 0 100 50 V 100 Z' /%3E%3C/svg%3E");
+  mask-size: 100% 100%;
+  mask-repeat: no-repeat;
+}
+
+/* Animation Performance */
+.animate-marquee {
+  backface-visibility: hidden;
+  perspective: 1000px;
+  transform-style: preserve-3d;
+}
+
+/* Custom selection color */
+::selection {
+  background: #9333EA;
+  color: white;
+}
